@@ -1,0 +1,342 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>編集ロック</title>
+<meta name="theme-color" content="#fff4e0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="編集ロック">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="referrer" content="no-referrer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="icon" type="image/png" href="icons/favicon.png">
+<style>
+  :root { --bg:#fff4e0; --ink:#2b2b2b; --sub:#6b6358; --on:#d9480f; --onbg:#fff0e6; --off:#2f9e44; --offbg:#ebfbee; --card:#fffdf8; }
+  * { box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+  html,body { margin:0; background:var(--bg); color:var(--ink); font-family:-apple-system,BlinkMacSystemFont,"Hiragino Sans","Hiragino Kaku Gothic ProN","Noto Sans JP","Yu Gothic",sans-serif; }
+  body { min-height:100vh; padding:env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  main { max-width:480px; margin:0 auto; padding:18px 18px 28px; }
+  header { display:flex; align-items:center; gap:12px; margin-bottom:14px; }
+  header img { width:56px; height:56px; }
+  header h1 { font-size:24px; margin:0; letter-spacing:.04em; }
+  header p { margin:2px 0 0; font-size:13px; color:var(--sub); }
+  .card { background:var(--card); border-radius:22px; padding:22px 20px; box-shadow:0 2px 10px rgba(80,60,20,.08); border:3px solid transparent; }
+  .card.locked { border-color:var(--on); background:var(--onbg); }
+  .card.free { border-color:var(--off); background:var(--offbg); }
+  .state { font-size:34px; font-weight:800; margin:0 0 6px; display:flex; align-items:center; gap:10px; }
+  .locked .state { color:var(--on); } .free .state { color:var(--off); }
+  .lead { font-size:18px; margin:0 0 14px; line-height:1.5; font-weight:600; }
+  dl { margin:0; display:grid; grid-template-columns:5.2em 1fr; row-gap:8px; font-size:16px; }
+  dt { color:var(--sub); } dd { margin:0; word-break:break-word; }
+  .switch-wrap { margin:28px 0 10px; display:flex; flex-direction:column; align-items:center; gap:12px; }
+  .switch { position:relative; width:260px; height:112px; border-radius:56px; border:none; padding:0; background:#c9c2b6; cursor:pointer; touch-action:none; transition:background .25s; box-shadow:inset 0 3px 8px rgba(0,0,0,.18); }
+  .switch[aria-checked="true"] { background:var(--on); }
+  .switch[aria-checked="false"] { background:var(--off); }
+  .switch:disabled { opacity:.5; cursor:default; }
+  .switch .lbl { position:absolute; top:0; bottom:0; display:flex; align-items:center; font-size:28px; font-weight:800; color:#fff; letter-spacing:.06em; pointer-events:none; }
+  .switch .lbl.on { left:30px; } .switch .lbl.off { right:26px; }
+  .switch[aria-checked="true"] .lbl.off, .switch[aria-checked="false"] .lbl.on { opacity:0; }
+  .knob { position:absolute; top:8px; left:8px; width:96px; height:96px; border-radius:50%; background:#fff; box-shadow:0 3px 8px rgba(0,0,0,.25); transition:transform .25s; display:flex; align-items:center; justify-content:center; font-size:40px; pointer-events:none; }
+  .switch[aria-checked="true"] .knob { transform:translateX(148px); }
+  .switch.dragging .knob { transition:none; }
+  .hint { font-size:15px; color:var(--sub); text-align:center; line-height:1.6; margin:0; }
+  .row { display:flex; justify-content:space-between; align-items:center; margin-top:22px; font-size:14px; color:var(--sub); }
+  button.plain { background:none; border:none; color:#1c7ed6; font-size:15px; padding:8px 4px; cursor:pointer; }
+  .msg { margin-top:14px; padding:12px 14px; border-radius:14px; background:#fff3bf; font-size:15px; line-height:1.5; display:none; }
+  .msg.show { display:block; }
+  .msg.err { background:#ffe3e3; }
+  .setup h2 { font-size:22px; margin:6px 0 10px; }
+  .setup p { font-size:16px; line-height:1.7; margin:0 0 12px; }
+  #tokenInput { width:100%; font-size:17px; padding:14px; border-radius:12px; border:2px solid #d8cfc0; background:#fff; font-family:ui-monospace,Menlo,monospace; }
+  .big { display:block; width:100%; margin-top:14px; padding:16px; font-size:19px; font-weight:700; border:none; border-radius:16px; background:#1c7ed6; color:#fff; cursor:pointer; }
+  .big.sub { background:#e9e4da; color:var(--ink); }
+  .big.danger { background:var(--on); }
+  .modal { position:fixed; inset:0; background:rgba(0,0,0,.45); display:none; align-items:center; justify-content:center; padding:24px; z-index:10; }
+  .modal.show { display:flex; }
+  .modal .box { background:#fff; border-radius:22px; padding:24px 20px 18px; max-width:360px; width:100%; text-align:center; }
+  .modal .box img { width:72px; height:72px; }
+  .modal .box p { font-size:19px; font-weight:700; line-height:1.6; margin:8px 0 6px; }
+  .hidden { display:none !important; }
+  .spin { display:inline-block; width:22px; height:22px; border:3px solid #ccc; border-top-color:#555; border-radius:50%; animation:sp 1s linear infinite; vertical-align:middle; }
+  @keyframes sp { to { transform:rotate(360deg); } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <img src="amity.png" alt="">
+    <div><h1>編集ロック</h1><p id="siteName">結婚ロードマップ（kekkon-roadmap）</p></div>
+  </header>
+
+  <!-- ふだんの画面 -->
+  <section id="viewMain" class="hidden">
+    <div id="card" class="card">
+      <p class="state" id="stateText"><span class="spin"></span> 確認中…</p>
+      <p class="lead" id="leadText"></p>
+      <dl id="details" class="hidden">
+        <dt>だれ</dt><dd id="dWho"></dd>
+        <dt>理由</dt><dd id="dReason"></dd>
+        <dt>いつから</dt><dd id="dAt"></dd>
+      </dl>
+    </div>
+
+    <div class="switch-wrap">
+      <button id="sw" class="switch" role="switch" aria-checked="false" aria-label="編集ロック" disabled>
+        <span class="lbl on">ON</span><span class="lbl off">OFF</span>
+        <span class="knob" id="knob">🔓</span>
+      </button>
+      <p class="hint">右にスライドして <b>ON</b> ＝ AIはサイトを編集しません<br>左にスライドして <b>OFF</b> ＝ AIが編集できます</p>
+    </div>
+
+    <div id="msg" class="msg"></div>
+
+    <div class="row">
+      <span id="checked">—</span>
+      <button class="plain" id="refresh">いますぐ確認</button>
+    </div>
+    <div class="row" style="margin-top:4px">
+      <span></span>
+      <button class="plain" id="openSettings">設定（鍵の入れ直し）</button>
+    </div>
+  </section>
+
+  <!-- はじめの設定 -->
+  <section id="viewSetup" class="card setup hidden">
+    <h2>はじめの設定（1回だけ）</h2>
+    <p>このアプリがロックを見たり切りかえたりするための<b>「鍵」</b>を入れます。<br>鍵は<b>このスマホの中だけ</b>に保存されます。</p>
+    <input id="tokenInput" type="password" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="github_pat_ から始まる文字">
+    <label style="display:flex;align-items:center;gap:8px;margin-top:10px;font-size:15px"><input type="checkbox" id="showToken" style="width:22px;height:22px"> 文字を表示する</label>
+    <button class="big" id="saveToken">保存してはじめる</button>
+    <button class="big sub hidden" id="cancelSetup">もどる</button>
+    <button class="big sub hidden" id="clearToken">このスマホから鍵を消す</button>
+    <div id="setupMsg" class="msg"></div>
+  </section>
+</main>
+
+<!-- 確認ダイアログ -->
+<div class="modal" id="modal" role="dialog" aria-modal="true">
+  <div class="box">
+    <img src="amity.png" alt="">
+    <p id="modalText"></p>
+    <button class="big danger" id="modalYes">外す</button>
+    <button class="big sub" id="modalNo">やめる</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const REPO = 'kenji0618y/edit-locks';
+  const TOKEN_KEY = 'henshu-lock-token';
+  const qs = new URLSearchParams(location.search);
+  const SITE = /^[A-Za-z0-9._-]+$/.test(qs.get('site') || '') ? qs.get('site') : 'kekkon-roadmap';
+  const isLocal = ['localhost', '127.0.0.1'].includes(location.hostname);
+  // テスト用の差し替えは手元（localhost）のときだけ。公開ページでは常に GitHub へ直接。
+  const API = (isLocal && qs.get('api')) || 'https://api.github.com';
+  const FILE_URL = `${API}/repos/${REPO}/contents/locks/${SITE}.json`;
+  const NAMES = { amity: 'Amityちゃん', grokbot1: 'Grok Bot', kenji: 'Kenji（あなた）' };
+  const nameOf = (w) => NAMES[w] || w;
+  const $ = (id) => document.getElementById(id);
+  let state = null;   // { rec, sha }
+  let busy = false;
+
+  if (SITE !== 'kekkon-roadmap') $('siteName').textContent = `サイト: ${SITE}`;
+
+  const getToken = () => (isLocal && qs.get('api')) ? 'local-test' : localStorage.getItem(TOKEN_KEY);
+  const fmtTime = (iso) => new Date(iso).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo', month: 'numeric', day: 'numeric', weekday: 'short', hour: '2-digit', minute: '2-digit' });
+  const b64decode = (s) => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\s/g, '')), (c) => c.charCodeAt(0)));
+  const b64encode = (str) => { const b = new TextEncoder().encode(str); let bin = ''; b.forEach((x) => bin += String.fromCharCode(x)); return btoa(bin); };
+  const isLocked = (r) => !!(r && r.locked && r.who);
+
+  class HttpErr extends Error { constructor(status, text) { super(text || ('HTTP ' + status)); this.status = status; } }
+  async function api(method, body, token = getToken()) {
+    const url = method === 'GET' ? `${FILE_URL}?t=${Date.now()}` : FILE_URL;
+    let res;
+    try {
+      res = await fetch(url, {
+        method, cache: 'no-store',
+        headers: { 'Authorization': `Bearer ${token}`, 'Accept': 'application/vnd.github+json', ...(body ? { 'Content-Type': 'application/json' } : {}) },
+        body: body ? JSON.stringify(body) : undefined,
+      });
+    } catch (e) { throw new HttpErr(0, 'network'); }
+    if (!res.ok) throw new HttpErr(res.status, await res.text().catch(() => ''));
+    return res.json();
+  }
+  async function readLock(token) {
+    try {
+      const j = await api('GET', null, token);
+      return { rec: JSON.parse(b64decode(j.content)), sha: j.sha };
+    } catch (e) {
+      if (e.status === 404 && SITE !== 'kekkon-roadmap') return { rec: null, sha: null };
+      throw e;
+    }
+  }
+  async function writeLock(rec, sha, message) {
+    const body = { message, content: b64encode(JSON.stringify(rec, null, 1) + '\n') };
+    if (sha) body.sha = sha;
+    const j = await api('PUT', body);
+    return j.content.sha;
+  }
+
+  function show(view) {
+    $('viewMain').classList.toggle('hidden', view !== 'main');
+    $('viewSetup').classList.toggle('hidden', view !== 'setup');
+  }
+  function note(text, err) { const m = $('msg'); m.textContent = text || ''; m.classList.toggle('show', !!text); m.classList.toggle('err', !!err); }
+
+  function render() {
+    const card = $('card'), sw = $('sw');
+    card.classList.remove('locked', 'free');
+    if (!state) {
+      $('stateText').innerHTML = '❔ わかりません';
+      $('leadText').textContent = 'いまの状態を確認できません。電波のよいところで「いますぐ確認」を押してください。';
+      $('details').classList.add('hidden');
+      sw.disabled = true;
+      return;
+    }
+    const r = state.rec, locked = isLocked(r);
+    card.classList.add(locked ? 'locked' : 'free');
+    sw.setAttribute('aria-checked', String(locked));
+    $('knob').textContent = locked ? '🔒' : '🔓';
+    sw.disabled = busy;
+    if (locked) {
+      $('stateText').textContent = '🔒 ロック中';
+      $('leadText').textContent = r.who === 'kenji'
+        ? 'あなたがロックしています。AIはだれもサイトを編集しません。'
+        : `${nameOf(r.who)}が編集中です。ほかのAIは編集しません。`;
+      $('dWho').textContent = nameOf(r.who);
+      $('dReason').textContent = r.reason || '（なし）';
+      $('dAt').textContent = r.at ? fmtTime(r.at) : '—';
+      $('details').classList.remove('hidden');
+    } else {
+      $('stateText').textContent = '🔓 ロックなし';
+      $('leadText').textContent = 'いまはだれも編集していません。AIが編集できる状態です。';
+      $('details').classList.add('hidden');
+    }
+  }
+
+  async function refresh(quiet) {
+    if (!getToken()) { openSetup(true); return; }
+    try {
+      state = await readLock();
+      $('checked').textContent = '確認: ' + new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo' });
+      if (!quiet) note('');
+      if ($('msg').classList.contains('err') && !busy) note('');
+    } catch (e) {
+      if (e.status === 401) { note('鍵が使えなくなりました（期限切れなど）。「設定」から入れ直してください。', true); state = null; }
+      else if (e.status === 404 || e.status === 403) { note('鍵にロックの記録を見る許可がないようです。「設定」から入れ直してください。', true); state = null; }
+      else { note('つながりません。電波を確認して「いますぐ確認」を押してください。', true); state = null; }
+    }
+    render();
+  }
+
+  // ---- 切りかえ ----
+  function confirmBox(text) {
+    return new Promise((resolve) => {
+      $('modalText').textContent = text; $('modal').classList.add('show');
+      const done = (v) => { $('modal').classList.remove('show'); $('modalYes').onclick = $('modalNo').onclick = null; resolve(v); };
+      $('modalYes').onclick = () => done(true); $('modalNo').onclick = () => done(false);
+    });
+  }
+  async function setLocked(want) {
+    if (busy || !state) return;
+    busy = true; render(); note('切りかえています…');
+    try {
+      const cur = await readLock();          // 最新を読み直してから書く
+      state = cur;
+      const r = cur.rec, locked = isLocked(r);
+      if (locked === want) { note(''); return; }
+      const now = new Date().toISOString();
+      const base = { site: SITE, rev: ((r && r.rev) || 0) + 1, updatedAt: now, updatedBy: 'app:kenji' };
+      let rec, message;
+      if (want) {
+        rec = { ...base, locked: true, who: 'kenji', reason: 'スマホから', at: now };
+        message = `lock ${SITE} by kenji (app)`;
+      } else {
+        if (r.who !== 'kenji') {
+          const ok = await confirmBox(`${nameOf(r.who)}が編集中です。外しますか？`);
+          if (!ok) { note(''); return; }
+        }
+        rec = { ...base, locked: false, who: '', reason: '', at: null, lastWho: r.who };
+        message = `unlock ${SITE} by kenji (app)` + (r.who !== 'kenji' ? ` (force, was ${r.who})` : '');
+      }
+      const newSha = await writeLock(rec, cur.sha, message);
+      state = await readLock();              // 書いたあと読み直して確認
+      if (state.sha !== newSha) note('ほかの人が同時に切りかえました。いまの状態を表示しています。', true);
+      else note(want ? 'ONにしました。AIはサイトを編集しません。' : 'OFFにしました。');
+    } catch (e) {
+      if (e.status === 409 || e.status === 422) { note('ちょうど同時に変更がありました。いまの状態を見て、もう一度どうぞ。', true); }
+      else if (e.status === 401) note('鍵が使えなくなりました。「設定」から入れ直してください。', true);
+      else note('切りかえられませんでした。電波を確認して、もう一度どうぞ。', true);
+      try { state = await readLock(); } catch {}
+    } finally { busy = false; render(); }
+  }
+
+  // スライド操作（ドラッグでもタップでも切りかえ）
+  const sw = $('sw'), knob = $('knob');
+  const MAX = 148;
+  let drag = null;
+  sw.addEventListener('pointerdown', (e) => {
+    if (sw.disabled) return;
+    drag = { x: e.clientX, start: sw.getAttribute('aria-checked') === 'true' ? MAX : 0, moved: false, pos: 0 };
+    drag.pos = drag.start; sw.setPointerCapture(e.pointerId);
+  });
+  sw.addEventListener('pointermove', (e) => {
+    if (!drag) return;
+    const dx = e.clientX - drag.x;
+    if (Math.abs(dx) > 6) { drag.moved = true; sw.classList.add('dragging'); }
+    if (drag.moved) { drag.pos = Math.max(0, Math.min(MAX, drag.start + dx)); knob.style.transform = `translateX(${drag.pos}px)`; }
+  });
+  const endDrag = (e, cancel) => {
+    if (!drag) return;
+    const d = drag; drag = null;
+    sw.classList.remove('dragging'); knob.style.transform = '';
+    if (cancel) return;
+    const cur = sw.getAttribute('aria-checked') === 'true';
+    const want = d.moved ? d.pos > MAX / 2 : !cur;
+    if (want !== cur) setLocked(want);
+  };
+  sw.addEventListener('pointerup', (e) => endDrag(e, false));
+  sw.addEventListener('pointercancel', (e) => endDrag(e, true));
+  sw.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setLocked(sw.getAttribute('aria-checked') !== 'true'); } });
+  sw.addEventListener('click', (e) => e.preventDefault());
+
+  // ---- 設定 ----
+  function openSetup(first) {
+    show('setup');
+    $('cancelSetup').classList.toggle('hidden', !!first);
+    $('clearToken').classList.toggle('hidden', !!first || !localStorage.getItem(TOKEN_KEY));
+  }
+  $('showToken').onchange = (e) => { $('tokenInput').type = e.target.checked ? 'text' : 'password'; };
+  $('saveToken').onclick = async () => {
+    const t = $('tokenInput').value.trim();
+    const m = $('setupMsg');
+    const say = (s, err) => { m.textContent = s; m.classList.add('show'); m.classList.toggle('err', !!err); };
+    if (!t) { say('鍵を貼りつけてください。', true); return; }
+    say('確認しています…');
+    try {
+      await readLock(t);
+      localStorage.setItem(TOKEN_KEY, t);
+      $('tokenInput').value = ''; m.classList.remove('show');
+      show('main'); refresh();
+    } catch (e) {
+      if (e.status === 401) say('鍵が正しくないようです。コピーしなおして、もう一度どうぞ。', true);
+      else if (e.status === 404 || e.status === 403) say('この鍵には、ロックの記録を見る許可がないようです。', true);
+      else say('つながりません。電波を確認して、もう一度どうぞ。', true);
+    }
+  };
+  $('cancelSetup').onclick = () => { show('main'); refresh(); };
+  $('clearToken').onclick = () => { localStorage.removeItem(TOKEN_KEY); state = null; openSetup(true); };
+  $('openSettings').onclick = () => openSetup(false);
+  $('refresh').onclick = () => { note(''); refresh(); };
+
+  // ---- 起動 ----
+  if (getToken()) { show('main'); refresh(); } else openSetup(true);
+  setInterval(() => { if (document.visibilityState === 'visible' && getToken() && !busy && !$('viewMain').classList.contains('hidden')) refresh(true); }, 15000);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && getToken() && !busy) refresh(true); });
+})();
+</script>
+</body>
+</html>
